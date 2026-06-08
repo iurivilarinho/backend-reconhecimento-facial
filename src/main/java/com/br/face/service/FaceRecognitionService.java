@@ -8,11 +8,15 @@ import static org.bytedeco.opencv.global.opencv_imgproc.cvtColor;
 import static org.bytedeco.opencv.global.opencv_imgproc.warpAffine;
 
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Collections;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 
 import org.bytedeco.javacpp.indexer.FloatIndexer;
 import org.bytedeco.javacpp.indexer.UByteIndexer;
@@ -20,30 +24,43 @@ import org.bytedeco.opencv.global.opencv_core;
 import org.bytedeco.opencv.opencv_core.Mat;
 import org.bytedeco.opencv.opencv_core.Size;
 import org.bytedeco.opencv.opencv_objdetect.FaceDetectorYN;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtSession;
+import ai.onnxruntime.OrtSession.SessionOptions;
+import ai.onnxruntime.OrtSession.SessionOptions.OptLevel;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
 /**
  * Reconhecimento facial com ArcFace (InsightFace MobileFaceNet, w600k_mbf)
- * rodando via ONNX Runtime, substituindo o EigenFaceRecognizer clássico do
- * OpenCV. Gera, a partir de UMA imagem, um embedding de 512 floats robusto a
- * câmera/iluminação/ângulo/idade — sem treino nem múltiplas fotos.
+ * rodando via ONNX Runtime. Gera, a partir de UMA imagem, um embedding de 512
+ * floats robusto a câmera/iluminação/ângulo/idade — sem treino nem múltiplas
+ * fotos.
  *
  * <p>
  * Pipeline: detecção do rosto e seus 5 pontos pelo YuNet (OpenCV) → alinhamento
  * por transformação de similaridade para o template canônico do ArcFace
- * (112x112) → inferência ONNX → vetor L2-normalizado. A comparação é feita por
+ * (112x112) → inferência ONNX → vetor L2-normalizado. A comparação é por
  * distância do coseno.
+ * </p>
+ *
+ * <p>
+ * Concorrência: a sessão ONNX é compartilhada (thread-safe). O detector YuNet
+ * não é thread-safe, então mantemos um <em>pool</em> de detectores — várias
+ * requisições inferem em paralelo, limitadas pelo tamanho do pool.
  * </p>
  */
 @Service
 public class FaceRecognitionService {
+
+	private static final Logger log = LoggerFactory.getLogger(FaceRecognitionService.class);
 
 	private static final String ARCFACE_MODEL = "models/w600k_mbf.onnx";
 	private static final String YUNET_MODEL = "models/face_detection_yunet_2023mar.onnx";
@@ -58,30 +75,69 @@ public class FaceRecognitionService {
 	private static final float[][] TEMPLATE = { { 38.2946f, 51.6963f }, { 73.5318f, 51.5014f },
 			{ 56.0252f, 71.7366f }, { 41.5493f, 92.3655f }, { 70.7299f, 92.2041f } };
 
+	private final int detectorPoolSize;
+	private final int intraOpThreads;
+	private final boolean useCuda;
+
 	private OrtEnvironment ortEnv;
 	private OrtSession arcSession;
-	private FaceDetectorYN detector;
+	private BlockingQueue<FaceDetectorYN> detectorPool;
 	private Path yunetTempFile;
+
+	public FaceRecognitionService(@Value("${arcface.detector-pool-size:0}") int detectorPoolSize,
+			@Value("${arcface.intra-op-threads:0}") int intraOpThreads,
+			@Value("${arcface.cuda:false}") boolean useCuda) {
+		this.detectorPoolSize = detectorPoolSize > 0 ? detectorPoolSize
+				: Runtime.getRuntime().availableProcessors();
+		this.intraOpThreads = intraOpThreads;
+		this.useCuda = useCuda;
+	}
 
 	@PostConstruct
 	void init() throws Exception {
-		// O detector YuNet exige caminho de arquivo: extrai o modelo do classpath
-		// para um arquivo temporário.
+		// O detector YuNet exige caminho de arquivo: extrai o modelo do classpath.
 		yunetTempFile = Files.createTempFile("yunet", ".onnx");
 		try (InputStream in = new ClassPathResource(YUNET_MODEL).getInputStream()) {
 			Files.copy(in, yunetTempFile, StandardCopyOption.REPLACE_EXISTING);
 		}
-		// Args: model, config, inputSize, scoreThreshold, nmsThreshold, topK,
-		// backendId (0 = default), targetId (0 = CPU).
-		detector = FaceDetectorYN.create(yunetTempFile.toString(), "", new Size(320, 320), 0.6f, 0.3f, 5000, 0, 0);
+		detectorPool = new ArrayBlockingQueue<>(detectorPoolSize);
+		for (int i = 0; i < detectorPoolSize; i++) {
+			detectorPool.add(newDetector());
+		}
 
-		// O ArcFace roda na memória a partir dos bytes do modelo.
 		byte[] modelBytes;
 		try (InputStream in = new ClassPathResource(ARCFACE_MODEL).getInputStream()) {
 			modelBytes = in.readAllBytes();
 		}
 		ortEnv = OrtEnvironment.getEnvironment();
-		arcSession = ortEnv.createSession(modelBytes, new OrtSession.SessionOptions());
+		arcSession = ortEnv.createSession(modelBytes, buildSessionOptions());
+		log.info("ArcFace pronto: poolDetectores={}, intraOpThreads={}, cuda={}", detectorPoolSize, intraOpThreads,
+				useCuda);
+	}
+
+	private FaceDetectorYN newDetector() {
+		// Args: model, config, inputSize, scoreThreshold, nmsThreshold, topK,
+		// backendId (0 = default), targetId (0 = CPU).
+		return FaceDetectorYN.create(yunetTempFile.toString(), "", new Size(320, 320), 0.6f, 0.3f, 5000, 0, 0);
+	}
+
+	private SessionOptions buildSessionOptions() throws Exception {
+		SessionOptions options = new SessionOptions();
+		options.setOptimizationLevel(OptLevel.ALL_OPT);
+		if (intraOpThreads > 0) {
+			options.setIntraOpNumThreads(intraOpThreads);
+		}
+		if (useCuda) {
+			try {
+				options.addCUDA(0);
+				log.info("ONNX Runtime: provider CUDA habilitado.");
+			} catch (Exception ex) {
+				// O artifact 'onnxruntime' (CPU) não traz o provider CUDA. Para GPU,
+				// troque por 'onnxruntime_gpu' no pom. Aqui caímos para CPU.
+				log.warn("CUDA solicitada mas indisponível ({}); usando CPU.", ex.getMessage());
+			}
+		}
+		return options;
 	}
 
 	@PreDestroy
@@ -89,8 +145,10 @@ public class FaceRecognitionService {
 		if (arcSession != null) {
 			arcSession.close();
 		}
-		if (detector != null) {
-			detector.close();
+		if (detectorPool != null) {
+			for (FaceDetectorYN detector : detectorPool) {
+				detector.close();
+			}
 		}
 		if (yunetTempFile != null) {
 			Files.deleteIfExists(yunetTempFile);
@@ -104,7 +162,7 @@ public class FaceRecognitionService {
 	 * @param imageBytes Conteúdo da imagem.
 	 * @return Vetor de 512 floats, ou null se nenhum rosto for detectado.
 	 */
-	public synchronized float[] embed(byte[] imageBytes) {
+	public float[] embed(byte[] imageBytes) {
 		Mat buffer = new Mat(1, imageBytes.length, opencv_core.CV_8U);
 		buffer.data().put(imageBytes);
 		Mat bgr = imdecode(buffer, IMREAD_COLOR);
@@ -153,45 +211,48 @@ public class FaceRecognitionService {
 		return 1.0 - dot / (Math.sqrt(normA) * Math.sqrt(normB));
 	}
 
-	/** Serializa o embedding como CSV para persistência. */
-	public static String serialize(float[] embedding) {
+	/** Serializa o embedding como bytes (little-endian, 4 bytes por float). */
+	public static byte[] toBytes(float[] embedding) {
 		if (embedding == null || embedding.length == 0) {
 			return null;
 		}
-		StringBuilder builder = new StringBuilder();
-		for (int i = 0; i < embedding.length; i++) {
-			if (i > 0) {
-				builder.append(',');
-			}
-			builder.append(embedding[i]);
+		ByteBuffer buffer = ByteBuffer.allocate(embedding.length * Float.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+		for (float value : embedding) {
+			buffer.putFloat(value);
 		}
-		return builder.toString();
+		return buffer.array();
 	}
 
-	/** Recupera o embedding persistido (CSV) como vetor de floats. */
-	public static float[] parse(String stored) {
-		if (stored == null || stored.isBlank()) {
+	/** Recupera o embedding persistido (bytes little-endian) como vetor de floats. */
+	public static float[] fromBytes(byte[] bytes) {
+		if (bytes == null || bytes.length == 0) {
 			return new float[0];
 		}
-		String[] parts = stored.split(",");
-		float[] values = new float[parts.length];
-		for (int i = 0; i < parts.length; i++) {
-			values[i] = Float.parseFloat(parts[i].trim());
+		ByteBuffer buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+		float[] values = new float[bytes.length / Float.BYTES];
+		for (int i = 0; i < values.length; i++) {
+			values[i] = buffer.getFloat();
 		}
 		return values;
 	}
 
 	/**
-	 * Detecta o rosto de maior score e retorna seus 5 pontos (x,y) reordenados para
-	 * a ordem do template do ArcFace: olho esq., olho dir., nariz, boca esq., boca
-	 * dir.
+	 * Detecta o rosto de maior score com um detector do pool e retorna seus 5
+	 * pontos (x,y) reordenados para a ordem do template do ArcFace.
 	 *
 	 * @return 10 floats (5 pares x,y) ou null se nenhum rosto detectado.
 	 */
 	private float[] detectLandmarks(Mat bgr) {
-		detector.setInputSize(new Size(bgr.cols(), bgr.rows()));
+		FaceDetectorYN detector;
+		try {
+			detector = detectorPool.take();
+		} catch (InterruptedException ex) {
+			Thread.currentThread().interrupt();
+			throw new IllegalStateException("Interrompido ao aguardar um detector facial.", ex);
+		}
 		Mat faces = new Mat();
 		try {
+			detector.setInputSize(new Size(bgr.cols(), bgr.rows()));
 			detector.detect(bgr, faces);
 			if (faces.rows() == 0) {
 				return null;
@@ -226,6 +287,7 @@ public class FaceRecognitionService {
 			return new float[] { lEyeX, lEyeY, rEyeX, rEyeY, noseX, noseY, lMouthX, lMouthY, rMouthX, rMouthY };
 		} finally {
 			faces.release();
+			detectorPool.add(detector);
 		}
 	}
 

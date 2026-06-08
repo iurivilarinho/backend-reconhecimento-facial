@@ -1,5 +1,6 @@
 package com.br.face.service;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -23,7 +24,7 @@ class FaceRecognitionServiceTest {
 
 	@BeforeAll
 	static void setUp() throws Exception {
-		service = new FaceRecognitionService();
+		service = new FaceRecognitionService(2, 0, false);
 		service.init();
 	}
 
@@ -57,6 +58,13 @@ class FaceRecognitionServiceTest {
 	@Test
 	void cosineDistanceShouldBeMaxForDifferentDimensions() {
 		assertEquals(2.0, FaceRecognitionService.cosineDistance(new float[] { 1f }, new float[] { 1f, 1f }), 1e-6);
+	}
+
+	@Test
+	void embeddingBinarySerializationShouldRoundTrip() {
+		float[] original = { 0.1f, -0.25f, 0.5f, -1.0f, 0.0f };
+		float[] restored = FaceRecognitionService.fromBytes(FaceRecognitionService.toBytes(original));
+		assertArrayEquals(original, restored, 0f);
 	}
 
 	@Test

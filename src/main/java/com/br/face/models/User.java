@@ -32,12 +32,13 @@ public class User {
 	private String name;
 
 	/**
-	 * ArcFace facial embedding (512 floats) serialized as CSV. Replaces the
-	 * EigenFaceRecognizer training: a single photo per user is enough.
+	 * ArcFace facial embedding (512 floats) stored as a compact binary blob
+	 * (little-endian, 4 bytes per float). A single photo per user is enough — no
+	 * training and no multiple photos.
 	 */
 	@Lob
 	@Column(name = "face_embedding")
-	private String faceEmbedding;
+	private byte[] faceEmbedding;
 
 	@Column(name = "created_at", updatable = false, nullable = false)
 	private LocalDateTime createdAt;
@@ -76,11 +77,11 @@ public class User {
 		this.name = name;
 	}
 
-	public String getFaceEmbedding() {
+	public byte[] getFaceEmbedding() {
 		return faceEmbedding;
 	}
 
-	public void setFaceEmbedding(String faceEmbedding) {
+	public void setFaceEmbedding(byte[] faceEmbedding) {
 		this.faceEmbedding = faceEmbedding;
 	}
 

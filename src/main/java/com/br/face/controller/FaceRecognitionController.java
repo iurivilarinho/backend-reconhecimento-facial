@@ -1,7 +1,7 @@
 package com.br.face.controller;
 
 import java.io.IOException;
-import java.util.List;
+import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +15,8 @@ import org.springframework.web.multipart.MultipartFile;
 import com.br.face.models.User;
 import com.br.face.response.RecognitionResponse;
 import com.br.face.response.UserResponse;
+import com.br.face.service.EmbeddingIndex;
+import com.br.face.service.EmbeddingIndex.Match;
 import com.br.face.service.FaceRecognitionService;
 import com.br.face.service.UserService;
 
@@ -23,8 +25,10 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.persistence.EntityNotFoundException;
 
 /**
- * Facial recognition with ArcFace: a single photo per user, no training.
- * Replaces the legacy flow (EigenFaceRecognizer with 10 training photos).
+ * Facial recognition with ArcFace: a single photo per user, no training. The
+ * 1:N matching runs against the in-memory {@link EmbeddingIndex} (no database
+ * round-trip per request). Replaces the legacy flow (EigenFaceRecognizer with
+ * 10 training photos).
  */
 @RestController
 @RequestMapping("/face")
@@ -32,14 +36,17 @@ public class FaceRecognitionController {
 
 	private final FaceRecognitionService faceRecognitionService;
 	private final UserService userService;
+	private final EmbeddingIndex embeddingIndex;
 
 	/** Maximum accepted cosine distance (the lower, the stricter). */
 	@Value("${arcface.threshold:0.5}")
 	private double threshold;
 
-	public FaceRecognitionController(FaceRecognitionService faceRecognitionService, UserService userService) {
+	public FaceRecognitionController(FaceRecognitionService faceRecognitionService, UserService userService,
+			EmbeddingIndex embeddingIndex) {
 		this.faceRecognitionService = faceRecognitionService;
 		this.userService = userService;
+		this.embeddingIndex = embeddingIndex;
 	}
 
 	@Operation(summary = "Cadastrar biometria", description = "Gera e salva o embedding facial do usuário a partir de UMA foto.")
@@ -55,8 +62,10 @@ public class FaceRecognitionController {
 		if (embedding == null) {
 			throw new IllegalArgumentException("Nenhum rosto detectado na imagem. Use uma foto frontal com boa luz.");
 		}
-		user.setFaceEmbedding(FaceRecognitionService.serialize(embedding));
-		return ResponseEntity.ok(new UserResponse(userService.save(user)));
+		user.setFaceEmbedding(FaceRecognitionService.toBytes(embedding));
+		User saved = userService.save(user);
+		embeddingIndex.put(saved.getId(), saved.getName(), embedding);
+		return ResponseEntity.ok(new UserResponse(saved));
 	}
 
 	@Operation(summary = "Reconhecer", description = "Identifica (1:N) o usuário cuja biometria mais se aproxima da foto enviada.")
@@ -71,22 +80,11 @@ public class FaceRecognitionController {
 			throw new IllegalArgumentException("Nenhum rosto detectado na imagem.");
 		}
 
-		List<User> users = userService.findEnrolled();
-		User best = null;
-		double smallestDistance = Double.MAX_VALUE;
-		for (User user : users) {
-			double distance = FaceRecognitionService.cosineDistance(descriptor,
-					FaceRecognitionService.parse(user.getFaceEmbedding()));
-			if (distance < smallestDistance) {
-				smallestDistance = distance;
-				best = user;
-			}
-		}
-
-		if (best == null || smallestDistance > threshold) {
+		Optional<Match> match = embeddingIndex.findBest(descriptor);
+		if (match.isEmpty() || match.get().distance() > threshold) {
 			throw new EntityNotFoundException("Nenhum usuário reconhecido.");
 		}
-		return ResponseEntity.ok(new RecognitionResponse(best, smallestDistance));
+		return ResponseEntity.ok(new RecognitionResponse(match.get()));
 	}
 
 	private void validateImage(MultipartFile file) {

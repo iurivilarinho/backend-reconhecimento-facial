@@ -26,11 +26,6 @@ public class UserService {
 	}
 
 	@Transactional(readOnly = true)
-	public List<User> findEnrolled() {
-		return userRepository.findByFaceEmbeddingIsNotNull();
-	}
-
-	@Transactional(readOnly = true)
 	public User findById(Long id) {
 		return userRepository.findById(id)
 				.orElseThrow(() -> new EntityNotFoundException("Usuário não encontrado para o ID: " + id));

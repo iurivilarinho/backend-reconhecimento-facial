@@ -50,6 +50,30 @@ Documentação interativa em `/swagger-ui.html`.
 - ONNX Runtime (ArcFace) + JavaCV/OpenCV (YuNet + alinhamento).
 - SQL Server.
 
+## Performance e concorrência
+
+- **Índice em memória** (`EmbeddingIndex`): os embeddings são carregados uma vez
+  na subida e atualizados a cada cadastro. O reconhecimento 1:N não toca no banco
+  nem desserializa nada por requisição — só compara 512 floats por usuário.
+- **Embedding binário**: persistido como `byte[]` (little-endian), não CSV.
+- **Pool de detectores**: o YuNet não é thread-safe, então mantemos um pool; a
+  sessão ONNX é compartilhada (thread-safe). Várias requisições inferem em
+  paralelo, sem `synchronized` global.
+- **Sessão ONNX afinada**: otimização de grafo `ALL_OPT` e threads configuráveis.
+
+Parâmetros (em `application.properties`):
+
+| Propriedade | Padrão | O que faz |
+| --- | --- | --- |
+| `arcface.threshold` | `0.5` | Distância coseno máxima aceita. |
+| `arcface.detector-pool-size` | `0` (= nº de CPUs) | Concorrência máxima da inferência. |
+| `arcface.intra-op-threads` | `0` (= padrão ORT) | Threads por inferência; 1–2 sob alta concorrência. |
+| `arcface.cuda` | `false` | Usa GPU (exige o artifact `onnxruntime_gpu` + CUDA). |
+
+> Para muitos milhares de usuários, o passo seguinte é trocar a varredura linear
+> por um índice ANN (HNSW/pgvector) — a interface do `EmbeddingIndex` já isola
+> isso.
+
 ## Modelos
 
 Em `src/main/resources/models/`:

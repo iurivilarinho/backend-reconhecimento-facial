@@ -11,7 +11,6 @@ public record UserResponse(
 		@Schema(description = "Indica se o usuário já possui biometria facial cadastrada.", example = "true") boolean faceEnrolled) {
 
 	public UserResponse(User user) {
-		this(user.getId(), user.getName(),
-				user.getFaceEmbedding() != null && !user.getFaceEmbedding().isBlank());
+		this(user.getId(), user.getName(), user.getFaceEmbedding() != null && user.getFaceEmbedding().length > 0);
 	}
 }
