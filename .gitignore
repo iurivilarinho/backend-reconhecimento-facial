@@ -1,6 +1,9 @@
 HELP.md
-src/main/java/recursos/classificadorEigenFaces.yml
 target/
+
+# Tooling de IA (skills/config locais), nao faz parte do projeto
+.claude/
+.codex/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/main/**/recursos/

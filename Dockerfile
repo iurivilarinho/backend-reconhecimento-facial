@@ -1,17 +1,17 @@
-FROM ubuntu:latest AS build
+# Build: empacota o jar. Limita os nativos do JavaCV ao Linux para reduzir o
+# download. Os testes nativos (OpenCV/ONNX) rodam no CI/local; aqui pulamos.
+FROM maven:3.9-eclipse-temurin-17 AS build
+WORKDIR /app
+COPY pom.xml .
+COPY src ./src
+RUN mvn -B -DskipTests "-Djavacpp.platform=linux-x86_64" clean package
 
-RUN apt-get update
-RUN apt-get install openjdk-17-jdk -y
-
-COPY . .
-
-RUN apt-get install maven -y
-RUN mvn clean install
-
-FROM openjdk:17-jdk-slim
-
-EXPOSE 8081
-
-COPY --from=build /target/face.jar face.jar
-
+# Runtime: JRE 17 + libgomp1, necessária pelos nativos do OpenCV/ONNX Runtime.
+FROM eclipse-temurin:17-jre
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends libgomp1 \
+	&& rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=build /app/target/face.jar face.jar
+EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "face.jar"]
