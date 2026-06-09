@@ -1,0 +1,65 @@
+{
+  "info": {
+    "name": "Reconhecimento Facial (ArcFace)",
+    "description": "API de reconhecimento facial com ArcFace via ONNX. Defina a variável baseUrl (padrão http://localhost:8080). Nos endpoints de biometria/reconhecimento, selecione um arquivo de imagem no campo 'file'.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" }
+  ],
+  "item": [
+    {
+      "name": "Criar usuário",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Barack Obama\"\n}" },
+        "url": { "raw": "{{baseUrl}}/users", "host": [ "{{baseUrl}}" ], "path": [ "users" ] }
+      }
+    },
+    {
+      "name": "Listar usuários",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/users", "host": [ "{{baseUrl}}" ], "path": [ "users" ] }
+      }
+    },
+    {
+      "name": "Buscar usuário por ID",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/users/1", "host": [ "{{baseUrl}}" ], "path": [ "users", "1" ] }
+      }
+    },
+    {
+      "name": "Cadastrar biometria (1 foto)",
+      "request": {
+        "method": "POST",
+        "body": {
+          "mode": "formdata",
+          "formdata": [ { "key": "file", "type": "file", "src": [] } ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/face/1/biometrics",
+          "host": [ "{{baseUrl}}" ],
+          "path": [ "face", "1", "biometrics" ]
+        }
+      }
+    },
+    {
+      "name": "Reconhecer (1:N)",
+      "request": {
+        "method": "POST",
+        "body": {
+          "mode": "formdata",
+          "formdata": [ { "key": "file", "type": "file", "src": [] } ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/face/recognize",
+          "host": [ "{{baseUrl}}" ],
+          "path": [ "face", "recognize" ]
+        }
+      }
+    }
+  ]
+}
