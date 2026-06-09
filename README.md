@@ -46,7 +46,7 @@ Documentação interativa em `/swagger-ui.html`.
 
 ## Stack
 
-- Java 17, Spring Boot 3.4, Spring Data JPA, Bean Validation, springdoc-openapi.
+- Java 21 (virtual threads), Spring Boot 3.4, Spring Data JPA, Bean Validation, springdoc-openapi.
 - ONNX Runtime (ArcFace) + JavaCV/OpenCV (YuNet + alinhamento).
 - SQL Server.
 

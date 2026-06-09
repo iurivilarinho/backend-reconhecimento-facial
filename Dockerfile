@@ -1,13 +1,13 @@
 # Build: empacota o jar. Limita os nativos do JavaCV ao Linux para reduzir o
 # download. Os testes nativos (OpenCV/ONNX) rodam no CI/local; aqui pulamos.
-FROM maven:3.9-eclipse-temurin-17 AS build
+FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /app
 COPY pom.xml .
 COPY src ./src
 RUN mvn -B -DskipTests "-Djavacpp.platform=linux-x86_64" clean package
 
-# Runtime: JRE 17 + libgomp1, necessária pelos nativos do OpenCV/ONNX Runtime.
-FROM eclipse-temurin:17-jre
+# Runtime: JRE 21 + libgomp1, necessária pelos nativos do OpenCV/ONNX Runtime.
+FROM eclipse-temurin:21-jre
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends libgomp1 \
 	&& rm -rf /var/lib/apt/lists/*
