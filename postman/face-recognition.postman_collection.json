@@ -1,11 +1,20 @@
 {
   "info": {
     "name": "Reconhecimento Facial (ArcFace)",
-    "description": "API de reconhecimento facial com ArcFace via ONNX. Defina a variável baseUrl (padrão http://localhost:8080). Nos endpoints de biometria/reconhecimento, selecione um arquivo de imagem no campo 'file'.",
+    "description": "API de reconhecimento facial com ArcFace via ONNX. Defina as variáveis baseUrl (padrão http://localhost:8080) e apiKey (uma chave configurada em API_KEYS). Todos os endpoints autenticam por X-API-Key. Nos endpoints de biometria/reconhecimento, selecione um arquivo de imagem no campo 'file'.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      { "key": "key", "value": "X-API-Key" },
+      { "key": "value", "value": "{{apiKey}}" },
+      { "key": "in", "value": "header" }
+    ]
+  },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8080" }
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "apiKey", "value": "minha-chave-secreta" }
   ],
   "item": [
     {

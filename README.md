@@ -44,6 +44,19 @@ limite (`arcface.threshold`).
 
 Documentação interativa em `/swagger-ui.html`.
 
+## Autenticação
+
+Todos os endpoints exigem o header **`X-API-Key`** com uma chave válida (exceto
+o Swagger/OpenAPI e `/actuator/health`). As chaves são configuradas em
+`api.keys` — em produção, via variável de ambiente **`API_KEYS`** (lista
+separada por vírgula, permite rotação). Sem chaves configuradas a API fica
+fechada (fail-closed) e retorna `401`.
+
+```bash
+API_KEYS="minha-chave-secreta,outra-chave" ./mvnw spring-boot:run
+curl -H "X-API-Key: minha-chave-secreta" http://localhost:8080/users
+```
+
 ## Stack
 
 - Java 21 (virtual threads), Spring Boot 3.4, Spring Data JPA, Bean Validation, springdoc-openapi.
