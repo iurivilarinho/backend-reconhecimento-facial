@@ -46,16 +46,40 @@ Documentação interativa em `/swagger-ui.html`.
 
 ## Autenticação
 
-Todos os endpoints exigem o header **`X-API-Key`** com uma chave válida (exceto
-o Swagger/OpenAPI e `/actuator/health`). As chaves são configuradas em
-`api.keys` — em produção, via variável de ambiente **`API_KEYS`** (lista
-separada por vírgula, permite rotação). Sem chaves configuradas a API fica
-fechada (fail-closed) e retorna `401`.
+Todos os endpoints exigem o header **`X-API-Key`** (exceto Swagger/OpenAPI e
+`/actuator/health`). Há dois níveis de chave:
+
+- **Bootstrap (admin):** configuradas em `api.keys` / variável de ambiente
+  **`API_KEYS`** (lista separada por vírgula). São as chaves mestras — as únicas
+  que podem **gerenciar chaves** em `/api-keys`. Sem nenhuma, a API fica fechada
+  (fail-closed).
+- **Geradas (banco):** criadas via `POST /api-keys`. São persistidas
+  **hasheadas** (SHA-256) com nome, descrição e validade; a chave em texto plano
+  aparece **uma única vez** na criação. Dão acesso aos endpoints normais
+  (usuários/reconhecimento), mas não a `/api-keys`.
 
 ```bash
-API_KEYS="minha-chave-secreta,outra-chave" ./mvnw spring-boot:run
-curl -H "X-API-Key: minha-chave-secreta" http://localhost:8080/users
+# 1) sobe com uma chave de bootstrap
+API_KEYS="admin-master-key" ./mvnw spring-boot:run
+
+# 2) gera uma chave de uso (validade opcional)
+curl -X POST http://localhost:8080/api-keys -H "X-API-Key: admin-master-key" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Terminal portao 1","expiresAt":"2027-01-01T00:00:00"}'
+# -> { "apiKey": "fk_....", ... }  (guarde: só aparece agora)
+
+# 3) usa a chave gerada
+curl -H "X-API-Key: fk_...." http://localhost:8080/users
 ```
+
+### Endpoints de chaves (admin)
+
+| Método | Rota | Descrição |
+| --- | --- | --- |
+| `POST` | `/api-keys` | Gera uma chave (retorna o texto plano uma vez). |
+| `GET` | `/api-keys` | Lista chaves (metadados, sem o segredo). |
+| `GET` | `/api-keys/{id}` | Metadados de uma chave. |
+| `DELETE` | `/api-keys/{id}` | Revoga a chave. |
 
 ## Stack
 

@@ -21,6 +21,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 import com.br.face.config.ApiExceptionHandler.ErrorResponse;
 import com.br.face.security.ApiKeyAuthFilter;
+import com.br.face.service.ApiKeyService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -40,14 +41,18 @@ public class SecurityConfig {
 	private static final String[] PUBLIC_PATHS = { "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**",
 			"/actuator/health" };
 
-	private final Set<String> apiKeys;
+	private final Set<String> bootstrapKeys;
 	private final ObjectMapper objectMapper;
+	private final ApiKeyService apiKeyService;
 
-	public SecurityConfig(@Value("${api.keys:}") String apiKeysCsv, ObjectMapper objectMapper) {
-		this.apiKeys = parseKeys(apiKeysCsv);
+	public SecurityConfig(@Value("${api.keys:}") String apiKeysCsv, ObjectMapper objectMapper,
+			ApiKeyService apiKeyService) {
+		this.bootstrapKeys = parseKeys(apiKeysCsv);
 		this.objectMapper = objectMapper;
-		if (apiKeys.isEmpty()) {
-			log.warn("Nenhuma API key configurada (api.keys/API_KEYS): os endpoints protegidos retornarao 401.");
+		this.apiKeyService = apiKeyService;
+		if (bootstrapKeys.isEmpty()) {
+			log.warn("Nenhuma API key de bootstrap configurada (api.keys/API_KEYS): "
+					+ "nao sera possivel gerenciar chaves nem acessar os endpoints ate cadastrar uma.");
 		}
 	}
 
@@ -63,8 +68,10 @@ public class SecurityConfig {
 	public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 		http.csrf(csrf -> csrf.disable())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-				.authorizeHttpRequests(auth -> auth.requestMatchers(PUBLIC_PATHS).permitAll().anyRequest().authenticated())
-				.addFilterBefore(new ApiKeyAuthFilter(apiKeys), UsernamePasswordAuthenticationFilter.class)
+				.authorizeHttpRequests(auth -> auth.requestMatchers(PUBLIC_PATHS).permitAll()
+						.requestMatchers("/api-keys/**").hasRole("ADMIN").anyRequest().authenticated())
+				.addFilterBefore(new ApiKeyAuthFilter(bootstrapKeys, apiKeyService),
+						UsernamePasswordAuthenticationFilter.class)
 				.exceptionHandling(handling -> handling.authenticationEntryPoint(unauthorizedEntryPoint()));
 		return http.build();
 	}

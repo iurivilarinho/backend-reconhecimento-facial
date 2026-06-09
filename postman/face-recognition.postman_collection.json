@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Reconhecimento Facial (ArcFace)",
-    "description": "API de reconhecimento facial com ArcFace via ONNX. Defina as variáveis baseUrl (padrão http://localhost:8080) e apiKey (uma chave configurada em API_KEYS). Todos os endpoints autenticam por X-API-Key. Nos endpoints de biometria/reconhecimento, selecione um arquivo de imagem no campo 'file'.",
+    "description": "API de reconhecimento facial com ArcFace via ONNX. Defina as variáveis baseUrl (padrão http://localhost:8080) e apiKey. Use uma chave de bootstrap (API_KEYS) para gerenciar chaves em /api-keys; chaves geradas servem para usuários/reconhecimento. Nos endpoints de biometria/reconhecimento, selecione um arquivo no campo 'file'.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -14,9 +14,44 @@
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:8080" },
-    { "key": "apiKey", "value": "minha-chave-secreta" }
+    { "key": "apiKey", "value": "admin-master-key" }
   ],
   "item": [
+    {
+      "name": "Chaves de API",
+      "item": [
+        {
+          "name": "Gerar chave (admin)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Terminal do portão 1\",\n  \"description\": \"Acesso ao reconhecimento\",\n  \"expiresAt\": \"2027-01-01T00:00:00\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api-keys", "host": [ "{{baseUrl}}" ], "path": [ "api-keys" ] }
+          }
+        },
+        {
+          "name": "Listar chaves (admin)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api-keys", "host": [ "{{baseUrl}}" ], "path": [ "api-keys" ] }
+          }
+        },
+        {
+          "name": "Buscar chave por ID (admin)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api-keys/1", "host": [ "{{baseUrl}}" ], "path": [ "api-keys", "1" ] }
+          }
+        },
+        {
+          "name": "Revogar chave (admin)",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{baseUrl}}/api-keys/1", "host": [ "{{baseUrl}}" ], "path": [ "api-keys", "1" ] }
+          }
+        }
+      ]
+    },
     {
       "name": "Criar usuário",
       "request": {
@@ -44,30 +79,16 @@
       "name": "Cadastrar biometria (1 foto)",
       "request": {
         "method": "POST",
-        "body": {
-          "mode": "formdata",
-          "formdata": [ { "key": "file", "type": "file", "src": [] } ]
-        },
-        "url": {
-          "raw": "{{baseUrl}}/face/1/biometrics",
-          "host": [ "{{baseUrl}}" ],
-          "path": [ "face", "1", "biometrics" ]
-        }
+        "body": { "mode": "formdata", "formdata": [ { "key": "file", "type": "file", "src": [] } ] },
+        "url": { "raw": "{{baseUrl}}/face/1/biometrics", "host": [ "{{baseUrl}}" ], "path": [ "face", "1", "biometrics" ] }
       }
     },
     {
       "name": "Reconhecer (1:N)",
       "request": {
         "method": "POST",
-        "body": {
-          "mode": "formdata",
-          "formdata": [ { "key": "file", "type": "file", "src": [] } ]
-        },
-        "url": {
-          "raw": "{{baseUrl}}/face/recognize",
-          "host": [ "{{baseUrl}}" ],
-          "path": [ "face", "recognize" ]
-        }
+        "body": { "mode": "formdata", "formdata": [ { "key": "file", "type": "file", "src": [] } ] },
+        "url": { "raw": "{{baseUrl}}/face/recognize", "host": [ "{{baseUrl}}" ], "path": [ "face", "recognize" ] }
       }
     }
   ]
